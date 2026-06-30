@@ -1,0 +1,33 @@
+{
+    "name": "securebounty/platform",
+    "description": "SecureBounty - Bug Bounty and Vulnerability Disclosure Platform",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0",
+        "innmind/black-box": "^5.0"
+    },
+    "autoload": {
+        "classmap": [
+            "controller/",
+            "model/repository/",
+            "model/services/",
+            "middleware/"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:property": "php tests/property/run.php"
+    }
+}
