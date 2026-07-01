@@ -68,6 +68,14 @@ $fullName = htmlspecialchars($firstName . ' ' . $lastName, ENT_QUOTES, 'UTF-8');
                 <a href="index.php?page=profile" class="dropdown-item">
                     <i data-lucide="user"></i> Profile
                 </a>
+                <a href="index.php?page=profile-edit" class="dropdown-item">
+                    <i data-lucide="edit-3"></i> Edit Profile
+                </a>
+                <?php if (!empty($_SESSION['user_id'])): ?>
+                    <a href="index.php?page=public-profile&amp;id=<?= (int) $_SESSION['user_id'] ?>" class="dropdown-item">
+                        <i data-lucide="user-circle"></i> Public Profile
+                    </a>
+                <?php endif; ?>
                 <hr class="dropdown-divider">
                 <a href="index.php?page=logout" class="dropdown-item dropdown-item-danger">
                     <i data-lucide="log-out"></i> Logout

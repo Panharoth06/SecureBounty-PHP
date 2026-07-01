@@ -133,4 +133,120 @@ class UserRepository extends BaseRepository
             [$limit, $offset]
         );
     }
+
+    /**
+     * Update user profile fields dynamically.
+     *
+     * Only updates fields present in the $fields array. Allowed fields:
+     * display_name, bio, website_url, github_url, linkedin_url,
+     * facebook_url, youtube_url, instagram_url.
+     *
+     * @param int   $id     User ID to update.
+     * @param array $fields Associative array of field => value pairs.
+     * @return int Number of affected rows (0 or 1).
+     * @throws RuntimeException on execution failure or if no valid fields provided.
+     *
+     * @see Requirement 8.5 — Profile field editing
+     * @see Requirement 8.8 — Save valid profile changes
+     */
+    public function updateProfile(int $id, array $fields): int
+    {
+        $allowedFields = [
+            'display_name',
+            'bio',
+            'website_url',
+            'github_url',
+            'linkedin_url',
+            'facebook_url',
+            'youtube_url',
+            'instagram_url',
+        ];
+
+        $setClauses = [];
+        $types = '';
+        $params = [];
+
+        foreach ($allowedFields as $field) {
+            if (array_key_exists($field, $fields)) {
+                $setClauses[] = "$field = ?";
+                $types .= 's';
+                $params[] = $fields[$field];
+            }
+        }
+
+        if (empty($setClauses)) {
+            return 0;
+        }
+
+        $setClauses[] = 'updated_at = NOW()';
+        $sql = 'UPDATE users SET ' . implode(', ', $setClauses) . ' WHERE id = ?';
+        $types .= 'i';
+        $params[] = $id;
+
+        return $this->execute($sql, $types, $params);
+    }
+
+    /**
+     * Update a user's avatar path.
+     *
+     * @param int         $id         User ID to update.
+     * @param string|null $avatarPath New avatar file path, or null to remove.
+     * @return int Number of affected rows (0 or 1).
+     * @throws RuntimeException on execution failure.
+     *
+     * @see Requirement 8.5 — Profile avatar upload
+     */
+    public function updateAvatarPath(int $id, ?string $avatarPath): int
+    {
+        return $this->execute(
+            'UPDATE users SET avatar_path = ?, updated_at = NOW() WHERE id = ?',
+            'si',
+            [$avatarPath, $id]
+        );
+    }
+
+    /**
+     * Update a user's reputation score.
+     *
+     * @param int $id    User ID to update.
+     * @param int $score New reputation score value.
+     * @return int Number of affected rows (0 or 1).
+     * @throws RuntimeException on execution failure.
+     *
+     * @see Requirement 3.1 — Reputation score calculation
+     */
+    public function updateReputationScore(int $id, int $score): int
+    {
+        return $this->execute(
+            'UPDATE users SET reputation_score = ?, updated_at = NOW() WHERE id = ?',
+            'ii',
+            [$score, $id]
+        );
+    }
+
+    /**
+     * Find a user's public profile by ID.
+     *
+     * Returns only fields suitable for public display, excluding
+     * password_hash and other sensitive information.
+     *
+     * @param int $id User ID to look up.
+     * @return array|null Associative array of public profile fields, or null if not found.
+     *
+     * @see Requirement 8.8 — Public researcher profile page
+     */
+    public function findPublicProfile(int $id): ?array
+    {
+        return $this->fetchOne(
+            'SELECT u.id, u.first_name, u.last_name, u.display_name, u.bio,
+                    u.avatar_path, u.website_url, u.github_url, u.linkedin_url,
+                    u.facebook_url, u.youtube_url, u.instagram_url,
+                    u.reputation_score, u.earliest_accepted_at, r.name AS role_name
+             FROM users u
+             INNER JOIN roles r ON u.role_id = r.id
+             WHERE u.id = ?',
+            'i',
+            [$id]
+        );
+    }
 }

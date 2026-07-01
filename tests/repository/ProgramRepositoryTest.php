@@ -163,4 +163,172 @@ class ProgramRepositoryTest extends TestCase
         $this->assertCount(2, $page2);
         $this->assertNotEquals($page1[0]['id'], $page2[0]['id']);
     }
+
+    public function testFindActiveWithFiltersNoFiltersReturnsAllActive(): void
+    {
+        $id1 = $this->repository->create($this->ownerId, 'Active 1', 'Desc', 'Scope');
+        $id2 = $this->repository->create($this->ownerId, 'Active 2', 'Desc', 'Scope');
+        $id3 = $this->repository->create($this->ownerId, 'Draft', 'Desc', 'Scope');
+
+        $this->repository->updateStatus($id1, 'active');
+        $this->repository->updateStatus($id2, 'active');
+        // id3 remains 'draft'
+
+        $results = $this->repository->findActiveWithFilters([], 20, 0);
+
+        $this->assertCount(2, $results);
+    }
+
+    public function testFindActiveWithFiltersAssetType(): void
+    {
+        $id1 = $this->repository->create($this->ownerId, 'Web Program', 'Desc', 'Scope');
+        $id2 = $this->repository->create($this->ownerId, 'Mobile Program', 'Desc', 'Scope');
+        $this->repository->updateStatus($id1, 'active');
+        $this->repository->updateStatus($id2, 'active');
+
+        // Add assets
+        self::$conn->query("INSERT INTO program_assets (program_id, name, type) VALUES ({$id1}, 'example.com', 'Domain')");
+        self::$conn->query("INSERT INTO program_assets (program_id, name, type) VALUES ({$id2}, 'com.app', 'Android Play Store')");
+
+        $results = $this->repository->findActiveWithFilters(['asset_type' => ['Domain']], 20, 0);
+
+        $this->assertCount(1, $results);
+        $this->assertEquals($id1, $results[0]['id']);
+    }
+
+    public function testFindActiveWithFiltersTagIds(): void
+    {
+        $id1 = $this->repository->create($this->ownerId, 'PHP Program', 'Desc', 'Scope');
+        $id2 = $this->repository->create($this->ownerId, 'Java Program', 'Desc', 'Scope');
+        $this->repository->updateStatus($id1, 'active');
+        $this->repository->updateStatus($id2, 'active');
+
+        // Add tags
+        self::$conn->query("INSERT INTO technology_tags (name, normalized_name) VALUES ('PHP', 'php')");
+        $phpTagId = (int) self::$conn->insert_id;
+        self::$conn->query("INSERT INTO technology_tags (name, normalized_name) VALUES ('Java', 'java')");
+        $javaTagId = (int) self::$conn->insert_id;
+
+        self::$conn->query("INSERT INTO program_tags (program_id, tag_id) VALUES ({$id1}, {$phpTagId})");
+        self::$conn->query("INSERT INTO program_tags (program_id, tag_id) VALUES ({$id2}, {$javaTagId})");
+
+        $results = $this->repository->findActiveWithFilters(['tag' => [$phpTagId]], 20, 0);
+
+        $this->assertCount(1, $results);
+        $this->assertEquals($id1, $results[0]['id']);
+    }
+
+    public function testFindActiveWithFiltersBountyRange(): void
+    {
+        $id1 = $this->repository->create($this->ownerId, 'High Bounty', 'Desc', 'Scope');
+        $id2 = $this->repository->create($this->ownerId, 'Low Bounty', 'Desc', 'Scope');
+        $this->repository->updateStatus($id1, 'active');
+        $this->repository->updateStatus($id2, 'active');
+
+        // Add reward policies
+        self::$conn->query("INSERT INTO reward_policies (program_id, severity, min_reward, max_reward) VALUES ({$id1}, 'critical', 5000, 10000)");
+        self::$conn->query("INSERT INTO reward_policies (program_id, severity, min_reward, max_reward) VALUES ({$id2}, 'critical', 100, 500)");
+
+        // Filter: bounty_min = 1000 (only program with max_reward >= 1000)
+        $results = $this->repository->findActiveWithFilters(['bounty_min' => 1000], 20, 0);
+        $this->assertCount(1, $results);
+        $this->assertEquals($id1, $results[0]['id']);
+
+        // Filter: bounty_max = 600 (only program with max_reward <= 600)
+        $results = $this->repository->findActiveWithFilters(['bounty_max' => 600], 20, 0);
+        $this->assertCount(1, $results);
+        $this->assertEquals($id2, $results[0]['id']);
+    }
+
+    public function testFindActiveWithFiltersCombinedAndLogic(): void
+    {
+        $id1 = $this->repository->create($this->ownerId, 'Full Program', 'Desc', 'Scope');
+        $id2 = $this->repository->create($this->ownerId, 'Partial Program', 'Desc', 'Scope');
+        $this->repository->updateStatus($id1, 'active');
+        $this->repository->updateStatus($id2, 'active');
+
+        // id1 has both Domain asset and a high bounty
+        self::$conn->query("INSERT INTO program_assets (program_id, name, type) VALUES ({$id1}, 'example.com', 'Domain')");
+        self::$conn->query("INSERT INTO reward_policies (program_id, severity, min_reward, max_reward) VALUES ({$id1}, 'critical', 5000, 10000)");
+
+        // id2 has Domain asset but low bounty
+        self::$conn->query("INSERT INTO program_assets (program_id, name, type) VALUES ({$id2}, 'test.com', 'Domain')");
+        self::$conn->query("INSERT INTO reward_policies (program_id, severity, min_reward, max_reward) VALUES ({$id2}, 'low', 50, 200)");
+
+        // Combined filter: Domain + bounty_min 1000 (AND logic)
+        $results = $this->repository->findActiveWithFilters([
+            'asset_type' => ['Domain'],
+            'bounty_min' => 1000,
+        ], 20, 0);
+
+        $this->assertCount(1, $results);
+        $this->assertEquals($id1, $results[0]['id']);
+    }
+
+    public function testCountActiveWithFiltersNoFilters(): void
+    {
+        $id1 = $this->repository->create($this->ownerId, 'Active 1', 'Desc', 'Scope');
+        $id2 = $this->repository->create($this->ownerId, 'Active 2', 'Desc', 'Scope');
+        $this->repository->create($this->ownerId, 'Draft', 'Desc', 'Scope');
+
+        $this->repository->updateStatus($id1, 'active');
+        $this->repository->updateStatus($id2, 'active');
+
+        $count = $this->repository->countActiveWithFilters([]);
+
+        $this->assertSame(2, $count);
+    }
+
+    public function testCountActiveWithFiltersAssetType(): void
+    {
+        $id1 = $this->repository->create($this->ownerId, 'Web Program', 'Desc', 'Scope');
+        $id2 = $this->repository->create($this->ownerId, 'Mobile Program', 'Desc', 'Scope');
+        $this->repository->updateStatus($id1, 'active');
+        $this->repository->updateStatus($id2, 'active');
+
+        self::$conn->query("INSERT INTO program_assets (program_id, name, type) VALUES ({$id1}, 'example.com', 'Domain')");
+        self::$conn->query("INSERT INTO program_assets (program_id, name, type) VALUES ({$id2}, 'com.app', 'Android Play Store')");
+
+        $count = $this->repository->countActiveWithFilters(['asset_type' => ['Domain']]);
+
+        $this->assertSame(1, $count);
+    }
+
+    public function testUpdateLogoPathSetsPath(): void
+    {
+        $id = $this->repository->create($this->ownerId, 'Program', 'Desc', 'Scope');
+
+        $affected = $this->repository->updateLogoPath($id, 'uploads/logos/program_1.png');
+
+        $this->assertSame(1, $affected);
+
+        $program = $this->repository->findById($id);
+        $this->assertSame('uploads/logos/program_1.png', $program['logo_path']);
+    }
+
+    public function testUpdateLogoPathClearsWithNull(): void
+    {
+        $id = $this->repository->create($this->ownerId, 'Program', 'Desc', 'Scope');
+
+        $this->repository->updateLogoPath($id, 'uploads/logos/program_1.png');
+        $this->repository->updateLogoPath($id, null);
+
+        $program = $this->repository->findById($id);
+        $this->assertNull($program['logo_path']);
+    }
+
+    public function testFindActiveWithFiltersPagination(): void
+    {
+        for ($i = 1; $i <= 5; $i++) {
+            $id = $this->repository->create($this->ownerId, "Active {$i}", 'Desc', 'Scope');
+            $this->repository->updateStatus($id, 'active');
+        }
+
+        $page1 = $this->repository->findActiveWithFilters([], 2, 0);
+        $page2 = $this->repository->findActiveWithFilters([], 2, 2);
+
+        $this->assertCount(2, $page1);
+        $this->assertCount(2, $page2);
+        $this->assertNotEquals($page1[0]['id'], $page2[0]['id']);
+    }
 }

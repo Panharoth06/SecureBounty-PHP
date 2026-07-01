@@ -84,6 +84,9 @@ class TestDatabaseHelper
 
         // Drop all existing tables
         $tables = [
+            'program_tags',
+            'technology_tags',
+            'program_assets',
             'program_comments',
             'csrf_tokens',
             'notifications',
@@ -159,6 +162,9 @@ class TestDatabaseHelper
         $conn->query("SET FOREIGN_KEY_CHECKS = 0");
 
         $dataTables = [
+            'program_tags',
+            'technology_tags',
+            'program_assets',
             'program_comments',
             'csrf_tokens',
             'notifications',

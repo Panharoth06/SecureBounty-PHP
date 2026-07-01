@@ -22,6 +22,8 @@ $enrolledPrograms ??= 0;
 $submittedReports ??= 0;
 $savedPrograms ??= 0;
 $notifications ??= [];
+$researcherRank ??= null;
+$reputationScore ??= 0;
 
 include __DIR__ . '/../components/layout.php';
 ?>
@@ -34,6 +36,32 @@ include __DIR__ . '/../components/layout.php';
     <p style="font-size: var(--text-small); color: var(--muted-foreground); margin-top: var(--space-xs);">
         Your research activity and notifications
     </p>
+</div>
+
+<!-- Rank / Reputation banner -->
+<div
+    style="background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-md) var(--space-lg); margin-bottom: var(--space-lg); display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap;">
+    <i data-lucide="trophy" style="width: 20px; height: 20px; color: var(--accent);"></i>
+    <div style="display: flex; align-items: baseline; gap: var(--space-md); flex-wrap: wrap; flex: 1; min-width: 0;">
+        <span style="font-size: var(--text-body); color: var(--foreground);">
+            Rank:
+            <strong>
+                <?php if ($researcherRank !== null): ?>
+                    #<?= (int) $researcherRank ?>
+                <?php else: ?>
+                    Unranked
+                <?php endif; ?>
+            </strong>
+        </span>
+        <span style="font-size: var(--text-body); color: var(--foreground);">
+            Reputation:
+            <strong><?= htmlspecialchars((string) $reputationScore, ENT_QUOTES, 'UTF-8') ?></strong>
+        </span>
+    </div>
+    <a href="index.php?page=leaderboard" class="btn-secondary"
+        style="padding: 6px 12px; font-size: var(--text-caption);">
+        View Leaderboard →
+    </a>
 </div>
 
 <!-- Stat Cards Grid -->

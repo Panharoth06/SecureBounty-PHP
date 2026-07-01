@@ -7,6 +7,8 @@ require_once __DIR__ . '/../model/repository/SavedProgramRepository.php';
 require_once __DIR__ . '/../model/repository/NotificationRepository.php';
 require_once __DIR__ . '/../model/repository/ActivityLogRepository.php';
 require_once __DIR__ . '/../model/repository/UserRepository.php';
+require_once __DIR__ . '/../model/repository/LeaderboardRepository.php';
+require_once __DIR__ . '/../model/services/LeaderboardService.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/HttpRedirect.php';
 
@@ -31,6 +33,7 @@ class DashboardController
     private NotificationRepository $notificationRepository;
     private ActivityLogRepository $activityLogRepository;
     private UserRepository $userRepository;
+    private LeaderboardService $leaderboardService;
 
     public function __construct()
     {
@@ -43,6 +46,7 @@ class DashboardController
         $this->notificationRepository = new NotificationRepository($conn);
         $this->activityLogRepository = new ActivityLogRepository($conn);
         $this->userRepository = new UserRepository($conn);
+        $this->leaderboardService = new LeaderboardService(new LeaderboardRepository($conn));
     }
 
     /**
@@ -148,6 +152,11 @@ class DashboardController
         $submittedReports = count($this->reportRepository->findByResearcherId($userId));
         $savedPrograms = count($this->savedProgramRepository->getSavedByUserId($userId));
         $notifications = $this->notificationRepository->getByUserId($userId, 10, 0);
+
+        // Reputation stats (Requirement 3.8, 3.9)
+        $stats = $this->leaderboardService->getResearcherStats($userId);
+        $researcherRank = $stats['rank']; // ?int — null when unranked
+        $reputationScore = (int) ($stats['score'] ?? 0);
 
         $title = 'SecureBounty | Dashboard';
         $activePage = 'dashboard';

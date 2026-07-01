@@ -28,6 +28,9 @@ require_once __DIR__ . '/controller/CommentController.php';
 require_once __DIR__ . '/controller/AdminController.php';
 require_once __DIR__ . '/controller/RewardPolicyController.php';
 require_once __DIR__ . '/controller/DashboardController.php';
+require_once __DIR__ . '/controller/LeaderboardController.php';
+require_once __DIR__ . '/controller/AssetController.php';
+require_once __DIR__ . '/controller/TagController.php';
 
 // Determine target page parameter (defaults to home)
 $page = filter_input(INPUT_GET, 'page', FILTER_UNSAFE_RAW) ?? 'home';
@@ -84,6 +87,18 @@ switch ($page) {
         $controller = new UserController();
         $controller->profile();
         break;
+    case 'profile-edit':
+        $controller = new UserController();
+        $controller->editProfile();
+        break;
+    case 'process-profile-edit':
+        $controller = new UserController();
+        $controller->processEditProfile();
+        break;
+    case 'public-profile':
+        $controller = new UserController();
+        $controller->publicProfile();
+        break;
 
     // =========================================================
     // Dashboard — role-specific routing
@@ -103,6 +118,14 @@ switch ($page) {
             header('Location: index.php?page=login');
             exit;
         }
+        break;
+
+    // =========================================================
+    // Leaderboard (LeaderboardController)
+    // =========================================================
+    case 'leaderboard':
+        $controller = new LeaderboardController();
+        $controller->index();
         break;
 
     // =========================================================
@@ -163,6 +186,38 @@ switch ($page) {
     case 'program-add-reply':
         $controller = new ProgramController();
         $controller->addProgramReply();
+        break;
+
+    // =========================================================
+    // Program asset routes (AssetController)
+    // =========================================================
+    case 'asset-add':
+        $controller = new AssetController();
+        $controller->add();
+        break;
+    case 'asset-update':
+        $controller = new AssetController();
+        $controller->update();
+        break;
+    case 'asset-delete':
+        $controller = new AssetController();
+        $controller->delete();
+        break;
+
+    // =========================================================
+    // Program tag routes (TagController)
+    // =========================================================
+    case 'tag-add':
+        $controller = new TagController();
+        $controller->add();
+        break;
+    case 'tag-remove':
+        $controller = new TagController();
+        $controller->remove();
+        break;
+    case 'tag-search':
+        $controller = new TagController();
+        $controller->search();
         break;
 
     // =========================================================

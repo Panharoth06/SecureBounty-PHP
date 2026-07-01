@@ -122,87 +122,46 @@ $roleId = (int) ($_SESSION['role_id'] ?? 0);
     </div>
 
 <?php else: ?>
-    <!-- ===== Researcher: HackerOne-style Card Grid ===== -->
-    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:var(--space-lg);">
-        <?php foreach ($programs as $prog):
-            $isEnrolled = $prog['is_enrolled'] ?? false;
-            $isSaved = $prog['is_saved'] ?? false;
-            $description = $prog['description'] ?? '';
-            $truncatedDesc = mb_strlen($description) > 120 ? mb_substr($description, 0, 120) . '…' : $description;
-            ?>
-            <div class="card-surface"
-                style="padding:0; display:flex; flex-direction:column; overflow:hidden; transition:box-shadow 0.15s ease;">
-                <!-- Card Header with accent bar -->
-                <div style="height:4px; background:var(--accent);"></div>
+    <!-- ===== Researcher: Filter Panel + Card Grid ===== -->
+    <div class="programs-layout">
+        <?php include __DIR__ . '/components/filter-panel.php'; ?>
 
-                <div style="padding:var(--space-lg); flex:1; display:flex; flex-direction:column;">
-                    <!-- Title -->
-                    <div style="margin-bottom:var(--space-sm);">
-                        <a href="index.php?page=program-detail&amp;id=<?= (int) $prog['id'] ?>"
-                            style="font-size:var(--text-subheading); font-weight:600; color:var(--foreground); text-decoration:none; line-height:1.3;">
-                            <?= htmlspecialchars($prog['title'], ENT_QUOTES, 'UTF-8') ?>
-                        </a>
-                    </div>
-
-                    <!-- Description snippet -->
-                    <p
-                        style="font-size:var(--text-small); color:var(--muted-foreground); line-height:1.5; margin:0 0 var(--space-md) 0; flex:1;">
-                        <?= htmlspecialchars($truncatedDesc, ENT_QUOTES, 'UTF-8') ?>
+        <div>
+            <?php if (empty($programs)): ?>
+                <div class="card-surface" style="padding:var(--space-2xl); text-align:center;">
+                    <p style="color:var(--muted-foreground); font-size:var(--text-body); margin:0;">
+                        No programs match the current filters.
                     </p>
-
-                    <!-- Scope preview -->
-                    <?php if (!empty($prog['scope'])): ?>
-                        <div style="margin-bottom:var(--space-md);">
-                            <span
-                                style="font-size:var(--text-caption); color:var(--muted-foreground); text-transform:uppercase; letter-spacing:0.5px; font-weight:500;">Scope</span>
-                            <p
-                                style="font-size:var(--text-small); color:var(--foreground); margin:4px 0 0; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                                <?= htmlspecialchars(mb_substr($prog['scope'], 0, 80), ENT_QUOTES, 'UTF-8') ?>
-                                <?= mb_strlen($prog['scope']) > 80 ? '…' : '' ?>
-                            </p>
-                        </div>
+                    <?php if (!empty($filters)): ?>
+                        <p style="margin-top:var(--space-md);">
+                            <a href="index.php?page=programs&amp;clear_filters=1" class="btn-secondary">Clear Filters</a>
+                        </p>
                     <?php endif; ?>
-
-                    <!-- Card Footer: actions -->
-                    <div
-                        style="display:flex; align-items:center; gap:var(--space-sm); padding-top:var(--space-md); border-top:1px solid var(--border); flex-wrap:wrap;">
-                        <a href="index.php?page=program-detail&amp;id=<?= (int) $prog['id'] ?>" class="btn-secondary"
-                            style="padding:6px 12px; font-size:var(--text-caption);">
-                            View Details
-                        </a>
-
-                        <a href="index.php?page=report-submit&amp;program_id=<?= (int) $prog['id'] ?>" class="btn-primary"
-                            style="padding:6px 12px; font-size:var(--text-caption);">
-                            <i data-lucide="bug" style="width:12px; height:12px;"></i>
-                            Submit Report
-                        </a>
-
-                        <!-- Bookmark toggle -->
-                        <?php if ($isSaved): ?>
-                            <form method="POST" action="index.php?page=program-unsave&amp;id=<?= (int) $prog['id'] ?>"
-                                style="display:inline; margin-left:auto;">
-                                <input type="hidden" name="csrf_token"
-                                    value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                                <button type="submit" title="Remove bookmark"
-                                    style="background:none; border:none; color:var(--accent); cursor:pointer; padding:4px;">
-                                    <i data-lucide="bookmark-check" style="width:18px; height:18px;"></i>
-                                </button>
-                            </form>
-                        <?php else: ?>
-                            <form method="POST" action="index.php?page=program-save&amp;id=<?= (int) $prog['id'] ?>"
-                                style="display:inline; margin-left:auto;">
-                                <input type="hidden" name="csrf_token"
-                                    value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                                <button type="submit" title="Save to bookmarks"
-                                    style="background:none; border:none; color:var(--muted-foreground); cursor:pointer; padding:4px;">
-                                    <i data-lucide="bookmark" style="width:18px; height:18px;"></i>
-                                </button>
-                            </form>
-                        <?php endif; ?>
-                    </div>
                 </div>
-            </div>
-        <?php endforeach; ?>
+            <?php else: ?>
+                <div class="card-grid">
+                    <?php foreach ($programs as $prog):
+                        $progId = (int) $prog['id'];
+                        $progStats = $statistics[$progId] ?? [
+                            'report_count' => 0,
+                            'enrolled_count' => 0,
+                            'response_rate' => null,
+                            'badges' => ['responsive' => false, 'popular' => false],
+                        ];
+                        $progAssetCounts = $assetCounts[$progId] ?? [];
+                        $progTags = $tags[$progId] ?? [];
+                        include __DIR__ . '/components/program-card.php';
+                    endforeach; ?>
+                </div>
+
+                <?php if (($totalCount ?? 0) > ($perPage ?? 12)): ?>
+                    <p
+                        style="text-align:center; color:var(--muted-foreground); font-size:var(--text-small); margin-top:var(--space-lg);">
+                        Showing <?= count($programs) ?> of <?= (int) $totalCount ?> matching programs.
+                    </p>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
     </div>
 <?php endif; ?>
 

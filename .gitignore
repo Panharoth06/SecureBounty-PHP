@@ -3,3 +3,4 @@
 config/.env
 .DS_Store
 .kiro
+/uploads/

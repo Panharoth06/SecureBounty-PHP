@@ -2,9 +2,13 @@
 
 require_once __DIR__ . '/../model/repository/UserRepository.php';
 require_once __DIR__ . '/../model/repository/ActivityLogRepository.php';
+require_once __DIR__ . '/../model/repository/LeaderboardRepository.php';
 require_once __DIR__ . '/../model/services/AuthService.php';
 require_once __DIR__ . '/../model/services/ValidationService.php';
 require_once __DIR__ . '/../model/services/ActivityLogService.php';
+require_once __DIR__ . '/../model/services/ProfileService.php';
+require_once __DIR__ . '/../model/services/ImageService.php';
+require_once __DIR__ . '/../model/services/LeaderboardService.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/HttpRedirect.php';
 
@@ -29,6 +33,10 @@ class UserController
 {
     private AuthService $authService;
     private ValidationService $validationService;
+    private ProfileService $profileService;
+    private ImageService $imageService;
+    private LeaderboardService $leaderboardService;
+    private UserRepository $userRepository;
 
     public function __construct()
     {
@@ -37,9 +45,14 @@ class UserController
         $userRepository = new UserRepository($conn);
         $activityLogRepository = new ActivityLogRepository($conn);
         $activityLogService = new ActivityLogService($activityLogRepository);
+        $leaderboardRepository = new LeaderboardRepository($conn);
 
         $this->authService = new AuthService($userRepository, $activityLogService);
         $this->validationService = new ValidationService($conn);
+        $this->profileService = new ProfileService($userRepository);
+        $this->imageService = new ImageService();
+        $this->leaderboardService = new LeaderboardService($leaderboardRepository);
+        $this->userRepository = $userRepository;
     }
 
     /**
@@ -239,6 +252,180 @@ class UserController
         $activePage = 'profile';
 
         include __DIR__ . '/../view/profile.php';
+    }
+
+    /**
+     * Display the profile edit form pre-populated with current data.
+     *
+     * @return void
+     *
+     * @see Requirement 8.1 — Profile edit form pre-populated with current data
+     */
+    public function editProfile(): void
+    {
+        // Enforce authentication
+        $authMiddleware = new AuthMiddleware();
+        $authMiddleware->handle();
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        $user = $this->authService->getCurrentUser();
+
+        if ($user === null) {
+            redirectTo('index.php?page=login');
+        }
+
+        $profile = $this->profileService->getProfile((int) $user['id']);
+
+        $csrfToken = $this->validationService->generateCsrfToken(session_id());
+
+        // Retrieve flash errors and old input from previous request
+        $errors = $_SESSION['flash_errors'] ?? [];
+        $oldInput = $_SESSION['flash_old_input'] ?? [];
+        unset($_SESSION['flash_errors'], $_SESSION['flash_old_input']);
+
+        $title = 'SecureBounty | Edit Profile';
+        $activePage = 'profile';
+
+        include __DIR__ . '/../view/profile/edit.php';
+    }
+
+    /**
+     * Process the profile edit form submission.
+     *
+     * Handles avatar upload, validates profile fields, and saves changes.
+     *
+     * @return void
+     *
+     * @see Requirement 8.4 — Resize avatar to 150x150 and store associated with user
+     * @see Requirement 8.7 — Reject save with field-specific validation errors
+     * @see Requirement 8.8 — Save valid profile changes
+     */
+    public function processEditProfile(): void
+    {
+        // Enforce authentication
+        $authMiddleware = new AuthMiddleware();
+        $authMiddleware->handle();
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        // Validate CSRF token
+        $token = $_POST['csrf_token'] ?? '';
+        if (!$this->validationService->validateCsrfToken($token, session_id())) {
+            http_response_code(403);
+            echo 'CSRF validation failed. Please try again.';
+            return;
+        }
+
+        $user = $this->authService->getCurrentUser();
+
+        if ($user === null) {
+            redirectTo('index.php?page=login');
+        }
+
+        $userId = (int) $user['id'];
+
+        // Collect POST data
+        $data = [
+            'display_name' => $_POST['display_name'] ?? '',
+            'bio' => $_POST['bio'] ?? '',
+            'website_url' => $_POST['website_url'] ?? '',
+            'github_url' => $_POST['github_url'] ?? '',
+            'linkedin_url' => $_POST['linkedin_url'] ?? '',
+            'facebook_url' => $_POST['facebook_url'] ?? '',
+            'youtube_url' => $_POST['youtube_url'] ?? '',
+            'instagram_url' => $_POST['instagram_url'] ?? '',
+        ];
+
+        // Validate profile fields
+        $errors = $this->profileService->validateProfile($data);
+
+        // Handle avatar upload if a file was provided
+        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] !== UPLOAD_ERR_NO_FILE) {
+            try {
+                $avatarPath = $this->imageService->uploadAvatar($_FILES['avatar'], $userId);
+                $this->userRepository->updateAvatarPath($userId, $avatarPath);
+            } catch (\InvalidArgumentException $e) {
+                $errors['avatar'] = $e->getMessage();
+            } catch (\RuntimeException $e) {
+                $errors['avatar'] = 'Failed to upload avatar. Please try again.';
+            }
+        }
+
+        // If validation errors, redirect back with errors and old input
+        if (!empty($errors)) {
+            $_SESSION['flash_errors'] = $errors;
+            $_SESSION['flash_old_input'] = $data;
+            redirectTo('index.php?page=profile-edit');
+        }
+
+        // Save profile changes
+        try {
+            $this->profileService->updateProfile($userId, $data);
+        } catch (\RuntimeException $e) {
+            $_SESSION['flash_errors'] = ['general' => 'Failed to update profile. Please try again.'];
+            $_SESSION['flash_old_input'] = $data;
+            redirectTo('index.php?page=profile-edit');
+        }
+
+        // Success — redirect to public profile page
+        $_SESSION['flash_success'] = 'Profile updated successfully.';
+        redirectTo('index.php?page=public-profile&id=' . $userId);
+    }
+
+    /**
+     * Display the public profile page for a researcher.
+     *
+     * Shows avatar, display name, bio, social links, reputation score,
+     * rank, and accepted report count.
+     *
+     * @return void
+     *
+     * @see Requirement 8.9 — Display avatar, display name, bio, and social links
+     * @see Requirement 8.10 — Display reputation score, accepted report count, and rank
+     * @see Requirement 8.11 — Avatar placeholder with initials
+     */
+    public function publicProfile(): void
+    {
+        // Enforce authentication (any authenticated user can view)
+        $authMiddleware = new AuthMiddleware();
+        $authMiddleware->handle();
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        $profileUserId = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+
+        if ($profileUserId <= 0) {
+            http_response_code(404);
+            echo 'User not found.';
+            return;
+        }
+
+        try {
+            $profile = $this->profileService->getPublicProfile($profileUserId);
+        } catch (\RuntimeException $e) {
+            http_response_code(404);
+            echo 'User not found.';
+            return;
+        }
+
+        // Get leaderboard stats (rank, score, accepted count, severity breakdown)
+        $stats = $this->leaderboardService->getResearcherStats($profileUserId);
+
+        // Retrieve any flash messages
+        $success = $_SESSION['flash_success'] ?? null;
+        unset($_SESSION['flash_success']);
+
+        $title = 'SecureBounty | Researcher Profile';
+        $activePage = 'profile';
+
+        include __DIR__ . '/../view/profile/public.php';
     }
 
     /**

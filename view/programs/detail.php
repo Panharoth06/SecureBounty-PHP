@@ -47,18 +47,43 @@ $status = $program['status'] ?? 'draft';
     </div>
 <?php endif; ?>
 
+<?php
+$logoPath = $logoPath ?? ($program['logo_path'] ?? null);
+$programStatistics = $programStatistics ?? ['report_count' => 0, 'enrolled_count' => 0, 'response_rate' => null, 'badges' => ['responsive' => false, 'popular' => false]];
+$assets = $assets ?? [];
+$programTags = $programTags ?? [];
+?>
+
 <!-- Program Header -->
 <div class="card-surface" style="padding:var(--space-lg); margin-bottom:var(--space-md);">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:var(--space-md);">
-        <div>
-            <h1 style="font-size:var(--text-heading); font-weight:600; margin:0 0 8px 0;">
-                <?= htmlspecialchars($program['title'], ENT_QUOTES, 'UTF-8') ?>
-            </h1>
-            <?php $statusClass = match ($status) { 'active' => 'badge-accepted', 'draft' => 'badge-pending', 'closed' => 'badge-resolved', 'suspended' => 'badge-rejected', default => 'badge-pending' }; ?>
-            <span class="<?= $statusClass ?>"><?= htmlspecialchars(ucfirst($status), ENT_QUOTES, 'UTF-8') ?></span>
-            <span style="color:var(--muted-foreground); font-size:var(--text-small); margin-left:12px;">
-                Created <?= htmlspecialchars(date('M j, Y', strtotime($program['created_at'])), ENT_QUOTES, 'UTF-8') ?>
-            </span>
+        <div style="display:flex; gap:var(--space-md); align-items:flex-start; flex:1; min-width:0;">
+            <?php if (!empty($logoPath)): ?>
+                <img src="<?= htmlspecialchars($logoPath, ENT_QUOTES, 'UTF-8') ?>"
+                    alt="<?= htmlspecialchars($program['title'] . ' logo', ENT_QUOTES, 'UTF-8') ?>"
+                    style="width:64px; height:64px; object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--border); flex-shrink:0;">
+            <?php else: ?>
+                <div aria-hidden="true"
+                    style="width:64px; height:64px; display:flex; align-items:center; justify-content:center; background:var(--muted); color:var(--foreground); font-weight:600; font-size:var(--text-heading); border-radius:var(--radius-md); border:1px solid var(--border); flex-shrink:0;">
+                    <?= htmlspecialchars(FormattingService::logoPlaceholder($program['title'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
+                </div>
+            <?php endif; ?>
+            <div style="flex:1; min-width:0;">
+                <h1 style="font-size:var(--text-heading); font-weight:600; margin:0 0 8px 0;">
+                    <?= htmlspecialchars($program['title'], ENT_QUOTES, 'UTF-8') ?>
+                </h1>
+                <?php $statusClass = match ($status) { 'active' => 'badge-accepted', 'draft' => 'badge-pending', 'closed' => 'badge-resolved', 'suspended' => 'badge-rejected', default => 'badge-pending' }; ?>
+                <span class="<?= $statusClass ?>"><?= htmlspecialchars(ucfirst($status), ENT_QUOTES, 'UTF-8') ?></span>
+                <?php if (!empty($programStatistics['badges']['responsive'])): ?>
+                    <span class="badge-responsive" style="margin-left:6px;">Responsive</span>
+                <?php endif; ?>
+                <?php if (!empty($programStatistics['badges']['popular'])): ?>
+                    <span class="badge-popular" style="margin-left:6px;">Popular</span>
+                <?php endif; ?>
+                <span style="color:var(--muted-foreground); font-size:var(--text-small); margin-left:12px;">
+                    Created <?= htmlspecialchars(date('M j, Y', strtotime($program['created_at'])), ENT_QUOTES, 'UTF-8') ?>
+                </span>
+            </div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <?php if ($isOwner): ?>
@@ -96,6 +121,72 @@ $status = $program['status'] ?? 'draft';
             <?php endif; ?>
         </div>
     </div>
+</div>
+
+<!-- Statistics row -->
+<div class="card-surface" style="padding:var(--space-lg); margin-bottom:var(--space-md);">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
+        <div>
+            <p style="margin:0; font-size:var(--text-caption); color:var(--muted-foreground); text-transform:uppercase; letter-spacing:0.5px;">Reports</p>
+            <p style="margin:4px 0 0; font-size:var(--text-subheading); font-weight:600;"><?= (int) ($programStatistics['report_count'] ?? 0) ?></p>
+        </div>
+        <div>
+            <p style="margin:0; font-size:var(--text-caption); color:var(--muted-foreground); text-transform:uppercase; letter-spacing:0.5px;">Enrolled</p>
+            <p style="margin:4px 0 0; font-size:var(--text-subheading); font-weight:600;"><?= (int) ($programStatistics['enrolled_count'] ?? 0) ?></p>
+        </div>
+        <div>
+            <p style="margin:0; font-size:var(--text-caption); color:var(--muted-foreground); text-transform:uppercase; letter-spacing:0.5px;">Response Rate</p>
+            <p style="margin:4px 0 0; font-size:var(--text-subheading); font-weight:600;">
+                <?php $rate = $programStatistics['response_rate'] ?? null;
+                echo $rate === null ? 'N/A' : ((int) $rate . '%'); ?>
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- In-scope Assets -->
+<div class="card-surface" style="padding:var(--space-lg); margin-bottom:var(--space-md);">
+    <h2 style="font-size:var(--text-subheading); font-weight:600; margin:0 0 12px 0;">In-Scope Assets</h2>
+    <?php if (empty($assets)): ?>
+        <p style="color:var(--muted-foreground); font-size:var(--text-body); margin:0;">No assets defined.</p>
+    <?php else: ?>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($assets as $asset): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($asset['name'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
+                        <td>
+                            <span class="chip chip-neutral">
+                                <?= htmlspecialchars($asset['type'] ?? '', ENT_QUOTES, 'UTF-8') ?>
+                            </span>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+</div>
+
+<!-- Technology Tags -->
+<div class="card-surface" style="padding:var(--space-lg); margin-bottom:var(--space-md);">
+    <h2 style="font-size:var(--text-subheading); font-weight:600; margin:0 0 12px 0;">Technology Stack</h2>
+    <?php if (empty($programTags)): ?>
+        <p style="color:var(--muted-foreground); font-size:var(--text-body); margin:0;">No tags defined.</p>
+    <?php else: ?>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            <?php foreach ($programTags as $tag): ?>
+                <span class="chip chip-accent">
+                    <?= htmlspecialchars($tag['name'] ?? '', ENT_QUOTES, 'UTF-8') ?>
+                </span>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 </div>
 
 <!-- Description -->

@@ -6,10 +6,17 @@ require_once __DIR__ . '/../model/repository/UserProgramRepository.php';
 require_once __DIR__ . '/../model/repository/SavedProgramRepository.php';
 require_once __DIR__ . '/../model/repository/ProgramCommentRepository.php';
 require_once __DIR__ . '/../model/repository/ActivityLogRepository.php';
+require_once __DIR__ . '/../model/repository/AssetRepository.php';
+require_once __DIR__ . '/../model/repository/TagRepository.php';
 require_once __DIR__ . '/../model/services/ProgramService.php';
 require_once __DIR__ . '/../model/services/RewardPolicyService.php';
 require_once __DIR__ . '/../model/services/ValidationService.php';
 require_once __DIR__ . '/../model/services/ActivityLogService.php';
+require_once __DIR__ . '/../model/services/StatisticsService.php';
+require_once __DIR__ . '/../model/services/ImageService.php';
+require_once __DIR__ . '/../model/services/AssetService.php';
+require_once __DIR__ . '/../model/services/TagService.php';
+require_once __DIR__ . '/../model/services/FormattingService.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../middleware/ProgramOwnerMiddleware.php';
 require_once __DIR__ . '/../middleware/ResearcherMiddleware.php';
@@ -43,6 +50,11 @@ class ProgramController
     private ValidationService $validationService;
     private ProgramRepository $programRepository;
     private RewardPolicyRepository $rewardPolicyRepository;
+    private StatisticsService $statisticsService;
+    private ImageService $imageService;
+    private AssetService $assetService;
+    private TagService $tagService;
+    private TagRepository $tagRepository;
 
     public function __construct()
     {
@@ -52,6 +64,8 @@ class ProgramController
         $rewardPolicyRepository = new RewardPolicyRepository($conn);
         $activityLogRepository = new ActivityLogRepository($conn);
         $activityLogService = new ActivityLogService($activityLogRepository);
+        $assetRepository = new AssetRepository($conn);
+        $tagRepository = new TagRepository($conn);
 
         $this->programRepository = $programRepository;
         $this->rewardPolicyRepository = $rewardPolicyRepository;
@@ -61,11 +75,16 @@ class ProgramController
         $this->savedProgramRepository = new SavedProgramRepository($conn);
         $this->programCommentRepository = new ProgramCommentRepository($conn);
         $this->validationService = new ValidationService($conn);
+        $this->statisticsService = new StatisticsService($conn);
+        $this->imageService = new ImageService();
+        $this->assetService = new AssetService($assetRepository, $programRepository);
+        $this->tagService = new TagService($tagRepository, $programRepository);
+        $this->tagRepository = $tagRepository;
     }
 
     /**
      * Display program listing.
-     * Researchers see active programs; Program Owners see their own programs.
+     * Researchers see active programs with filters and statistics; Program Owners see their own programs.
      *
      * @return void
      */
@@ -81,6 +100,18 @@ class ProgramController
         $roleId = (int) ($_SESSION['role_id'] ?? 0);
         $userId = (int) ($_SESSION['user_id'] ?? 0);
 
+        // Defaults for variables consumed by the researcher view (kept in scope
+        // for both branches so the include block does not warn on undefined vars).
+        $filters = [];
+        $allTags = [];
+        $statistics = [];
+        $assetCounts = [];
+        $tags = [];
+        $totalCount = 0;
+        $page = 1;
+        $perPage = 12;
+        $filterErrors = [];
+
         if ($roleId === 2) {
             // Program Owner — show their own programs with reward ranges
             $programs = $this->programRepository->findByOwnerId($userId);
@@ -93,11 +124,65 @@ class ProgramController
             }
             unset($prog);
         } else {
-            // Researcher — show active programs with enrollment/saved status
-            $programs = $this->programRepository->findActive();
+            // Researcher — show active programs with filters, statistics, enrollment/saved status
+
+            // Detect invalid bounty range before normalising filters so the panel can show an inline error
+            if (
+                isset($_GET['bounty_min'], $_GET['bounty_max'])
+                && is_numeric($_GET['bounty_min'])
+                && is_numeric($_GET['bounty_max'])
+                && (float) $_GET['bounty_min'] > (float) $_GET['bounty_max']
+            ) {
+                $filterErrors['bounty_range'] = 'Minimum bounty cannot exceed maximum.';
+            }
+
+            // Resolve filters: GET params > session > none
+            $filters = $this->resolveFilters();
+
+            // Full tag pool for the filter panel multi-select
+            $allTags = $this->tagRepository->findAll();
+
+            // Get page and pagination params
+            $page = max(1, (int) ($_GET['page'] ?? 1));
+            $perPage = 12;
+            $offset = ($page - 1) * $perPage;
+
+            // Query programs with filters
+            $programs = $this->programRepository->findActiveWithFilters($filters, $perPage, $offset);
+            $totalCount = $this->programRepository->countActiveWithFilters($filters);
+
+            // Gather program IDs for bulk operations
+            $programIds = array_map(fn($p) => (int) $p['id'], $programs);
+
+            // Get bulk statistics for all programs on page
+            $statistics = [];
+            if (!empty($programIds)) {
+                $statistics = $this->statisticsService->getBulkProgramStatistics($programIds);
+            }
+
+            // Get asset counts and tags for each program, and enrich with enrollment/saved status
+            $assetCounts = [];
+            $tags = [];
             foreach ($programs as &$prog) {
-                $prog['is_enrolled'] = $this->userProgramRepository->isEnrolled($userId, (int) $prog['id']);
-                $prog['is_saved'] = $this->savedProgramRepository->isSaved($userId, (int) $prog['id']);
+                $progId = (int) $prog['id'];
+                $prog['is_enrolled'] = $this->userProgramRepository->isEnrolled($userId, $progId);
+                $prog['is_saved'] = $this->savedProgramRepository->isSaved($userId, $progId);
+
+                // Asset counts by type
+                $assetCounts[$progId] = $this->assetService->getAssetCountsByType($progId);
+
+                // Tags for this program
+                $tags[$progId] = $this->tagService->getTagsByProgram($progId);
+
+                // Reward range
+                $policies = $this->rewardPolicyRepository->findByProgramId($progId);
+                if (!empty($policies)) {
+                    $prog['min_reward'] = min(array_column($policies, 'min_reward'));
+                    $prog['max_reward'] = max(array_column($policies, 'max_reward'));
+                } else {
+                    $prog['min_reward'] = null;
+                    $prog['max_reward'] = null;
+                }
             }
             unset($prog);
         }
@@ -116,7 +201,79 @@ class ProgramController
     }
 
     /**
-     * Display program detail with reward policies and enrollment status.
+     * Resolve filter parameters from GET, session, or default (no filters).
+     *
+     * Logic:
+     * - If GET has clear_filters=1 → clear session, return empty
+     * - If GET has filter params → use those and store in session
+     * - If no GET filter params but session has stored filters → use session
+     * - Default: no filters
+     *
+     * @return array Associative array of filter criteria.
+     */
+    private function resolveFilters(): array
+    {
+        // Clear filters explicitly
+        if (isset($_GET['clear_filters']) && $_GET['clear_filters'] === '1') {
+            unset($_SESSION['program_filters']);
+            return [];
+        }
+
+        // Check if GET has any filter params
+        $hasGetFilters = isset($_GET['asset_type'])
+            || isset($_GET['tag'])
+            || isset($_GET['bounty_min'])
+            || isset($_GET['bounty_max']);
+
+        if ($hasGetFilters) {
+            $filters = [];
+
+            // Parse asset_type[] array
+            if (!empty($_GET['asset_type']) && is_array($_GET['asset_type'])) {
+                $filters['asset_type'] = array_filter($_GET['asset_type'], fn($v) => $v !== '');
+            }
+
+            // Parse tag[] array
+            if (!empty($_GET['tag']) && is_array($_GET['tag'])) {
+                $filters['tag'] = array_map('intval', $_GET['tag']);
+                $filters['tag'] = array_filter($filters['tag'], fn($v) => $v > 0);
+            }
+
+            // Parse bounty_min (validate numeric)
+            if (isset($_GET['bounty_min']) && $_GET['bounty_min'] !== '' && is_numeric($_GET['bounty_min'])) {
+                $filters['bounty_min'] = (float) $_GET['bounty_min'];
+            }
+
+            // Parse bounty_max (validate numeric)
+            if (isset($_GET['bounty_max']) && $_GET['bounty_max'] !== '' && is_numeric($_GET['bounty_max'])) {
+                $filters['bounty_max'] = (float) $_GET['bounty_max'];
+            }
+
+            // Validate bounty range (min <= max)
+            if (isset($filters['bounty_min'], $filters['bounty_max'])) {
+                if ($filters['bounty_min'] > $filters['bounty_max']) {
+                    // Invalid range — remove both bounty filters
+                    unset($filters['bounty_min'], $filters['bounty_max']);
+                }
+            }
+
+            // Store in session
+            $_SESSION['program_filters'] = $filters;
+
+            return $filters;
+        }
+
+        // Use session filters if available
+        if (!empty($_SESSION['program_filters']) && is_array($_SESSION['program_filters'])) {
+            return $_SESSION['program_filters'];
+        }
+
+        // Default: no filters
+        return [];
+    }
+
+    /**
+     * Display program detail with reward policies, assets, tags, statistics, and enrollment status.
      *
      * @param int|null $programId Program ID (from route parameter or $_GET['id']).
      * @return void
@@ -148,6 +305,18 @@ class ProgramController
 
         // Fetch program-level comments (threaded discussion)
         $programComments = $this->programCommentRepository->findByProgramId($programId);
+
+        // Fetch assets for this program
+        $assets = $this->assetService->getAssetsByProgram($programId);
+
+        // Fetch tags for this program
+        $programTags = $this->tagService->getTagsByProgram($programId);
+
+        // Get statistics for this program (report count, enrolled count, response rate, badges)
+        $programStatistics = $this->statisticsService->getProgramStatistics($programId);
+
+        // Logo path info for display
+        $logoPath = $program['logo_path'] ?? null;
 
         // Generate CSRF token for state-changing actions on this page
         $csrfToken = $this->validationService->generateCsrfToken(session_id());
@@ -194,6 +363,7 @@ class ProgramController
     /**
      * Process program creation form submission.
      * Restricted to Program Owners. Validates CSRF token.
+     * Handles optional logo upload.
      *
      * @return void
      */
@@ -230,6 +400,22 @@ class ProgramController
                 $scope,
                 $ipAddress
             );
+
+            // Handle logo upload if a file was provided
+            if (isset($_FILES['logo']) && $_FILES['logo']['error'] !== UPLOAD_ERR_NO_FILE) {
+                try {
+                    $logoPath = $this->imageService->uploadLogo($_FILES['logo'], $programId);
+                    $this->programRepository->updateLogoPath($programId, $logoPath);
+                } catch (InvalidArgumentException $e) {
+                    $_SESSION['flash_error'] = 'Program created, but logo upload failed: ' . $e->getMessage();
+                    header('Location: index.php?page=program-detail&id=' . $programId);
+                    exit;
+                } catch (RuntimeException $e) {
+                    $_SESSION['flash_error'] = 'Program created, but logo upload failed: ' . $e->getMessage();
+                    header('Location: index.php?page=program-detail&id=' . $programId);
+                    exit;
+                }
+            }
 
             $_SESSION['flash_success'] = 'Program created successfully.';
             header('Location: index.php?page=program-detail&id=' . $programId);
@@ -283,10 +469,28 @@ class ProgramController
         $rewardPolicies = $this->rewardPolicyRepository->findByProgramId($programId);
         $csrfToken = $this->validationService->generateCsrfToken(session_id());
 
+        // Assets and tags for in-page management sections
+        $assets = $this->assetService->getAssetsByProgram($programId);
+        $assetTypes = AssetService::VALID_TYPES;
+        $tags = $this->tagService->getTagsByProgram($programId);
+        $tagCount = count($tags);
+        $tagLimit = 20;
+
         // Retrieve flash messages and old input
         $errors = $_SESSION['flash_errors'] ?? [];
         $oldInput = $_SESSION['flash_old_input'] ?? [];
-        unset($_SESSION['flash_errors'], $_SESSION['flash_old_input']);
+        $assetErrors = $_SESSION['flash_asset_errors'] ?? [];
+        $tagErrors = $_SESSION['flash_tag_errors'] ?? [];
+        $assetOldInput = $_SESSION['flash_asset_old_input'] ?? [];
+        $tagOldInput = $_SESSION['flash_tag_old_input'] ?? [];
+        unset(
+            $_SESSION['flash_errors'],
+            $_SESSION['flash_old_input'],
+            $_SESSION['flash_asset_errors'],
+            $_SESSION['flash_tag_errors'],
+            $_SESSION['flash_asset_old_input'],
+            $_SESSION['flash_tag_old_input']
+        );
 
         $title = 'SecureBounty | Edit Program';
         $activePage = 'programs';
@@ -297,6 +501,7 @@ class ProgramController
     /**
      * Process program edit form submission.
      * Restricted to Program Owners. Validates CSRF token and ownership.
+     * Handles optional logo upload.
      *
      * @param int|null $programId Program ID (from route parameter or $_GET['id']).
      * @return void
@@ -351,6 +556,22 @@ class ProgramController
                 $scope,
                 $ipAddress
             );
+
+            // Handle logo upload if a file was provided
+            if (isset($_FILES['logo']) && $_FILES['logo']['error'] !== UPLOAD_ERR_NO_FILE) {
+                try {
+                    $logoPath = $this->imageService->uploadLogo($_FILES['logo'], $programId);
+                    $this->programRepository->updateLogoPath($programId, $logoPath);
+                } catch (InvalidArgumentException $e) {
+                    $_SESSION['flash_error'] = 'Program updated, but logo upload failed: ' . $e->getMessage();
+                    header('Location: index.php?page=program-detail&id=' . $programId);
+                    exit;
+                } catch (RuntimeException $e) {
+                    $_SESSION['flash_error'] = 'Program updated, but logo upload failed: ' . $e->getMessage();
+                    header('Location: index.php?page=program-detail&id=' . $programId);
+                    exit;
+                }
+            }
 
             $_SESSION['flash_success'] = 'Program updated successfully.';
             header('Location: index.php?page=program-detail&id=' . $programId);

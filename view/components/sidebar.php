@@ -35,6 +35,7 @@ function sidebarItem(string $page, string $icon, string $label, string $activePa
                 <?= sidebarItem('admin-users', 'users', 'Users', $activePage) ?>
                 <?= sidebarItem('admin-programs', 'shield', 'Programs', $activePage) ?>
                 <?= sidebarItem('admin-activity-logs', 'activity', 'Activity Logs', $activePage) ?>
+                <?= sidebarItem('leaderboard', 'trophy', 'Leaderboard', $activePage) ?>
             </div>
         <?php elseif ($roleId === 2): // Program Owner ?>
             <div class="sidebar-group">
@@ -42,6 +43,7 @@ function sidebarItem(string $page, string $icon, string $label, string $activePa
                 <?= sidebarItem('dashboard', 'layout-dashboard', 'Dashboard', $activePage) ?>
                 <?= sidebarItem('programs', 'shield', 'My Programs', $activePage) ?>
                 <?= sidebarItem('reports', 'file-text', 'Reports', $activePage) ?>
+                <?= sidebarItem('leaderboard', 'trophy', 'Leaderboard', $activePage) ?>
             </div>
         <?php elseif ($roleId === 3): // Researcher ?>
             <div class="sidebar-group">
@@ -50,6 +52,7 @@ function sidebarItem(string $page, string $icon, string $label, string $activePa
                 <?= sidebarItem('programs', 'shield', 'Programs', $activePage) ?>
                 <?= sidebarItem('my-reports', 'file-text', 'My Reports', $activePage) ?>
                 <?= sidebarItem('saved-programs', 'bookmark', 'Saved Programs', $activePage) ?>
+                <?= sidebarItem('leaderboard', 'trophy', 'Leaderboard', $activePage) ?>
             </div>
         <?php endif; ?>
     </nav>

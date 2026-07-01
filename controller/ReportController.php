@@ -7,12 +7,14 @@ require_once __DIR__ . '/../model/repository/UserProgramRepository.php';
 require_once __DIR__ . '/../model/repository/RewardPolicyRepository.php';
 require_once __DIR__ . '/../model/repository/NotificationRepository.php';
 require_once __DIR__ . '/../model/repository/ActivityLogRepository.php';
+require_once __DIR__ . '/../model/repository/LeaderboardRepository.php';
 require_once __DIR__ . '/../model/services/ReportService.php';
 require_once __DIR__ . '/../model/services/AttachmentService.php';
 require_once __DIR__ . '/../model/services/CvssCalculatorService.php';
 require_once __DIR__ . '/../model/services/ValidationService.php';
 require_once __DIR__ . '/../model/services/NotificationService.php';
 require_once __DIR__ . '/../model/services/ActivityLogService.php';
+require_once __DIR__ . '/../model/services/LeaderboardService.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 require_once __DIR__ . '/../middleware/ProgramOwnerMiddleware.php';
 require_once __DIR__ . '/../middleware/ResearcherMiddleware.php';
@@ -42,6 +44,7 @@ class ReportController
     private ReportRepository $reportRepository;
     private AttachmentRepository $attachmentRepository;
     private ProgramRepository $programRepository;
+    private LeaderboardService $leaderboardService;
 
     public function __construct()
     {
@@ -54,20 +57,24 @@ class ReportController
         $rewardPolicyRepository = new RewardPolicyRepository($conn);
         $notificationRepository = new NotificationRepository($conn);
         $activityLogRepository = new ActivityLogRepository($conn);
+        $leaderboardRepository = new LeaderboardRepository($conn);
 
         $notificationService = new NotificationService($notificationRepository);
         $activityLogService = new ActivityLogService($activityLogRepository);
+        $leaderboardService = new LeaderboardService($leaderboardRepository);
 
         $this->reportRepository = $reportRepository;
         $this->attachmentRepository = $attachmentRepository;
         $this->programRepository = $programRepository;
+        $this->leaderboardService = $leaderboardService;
         $this->reportService = new ReportService(
             $reportRepository,
             $userProgramRepository,
             $programRepository,
             $rewardPolicyRepository,
             $notificationService,
-            $activityLogService
+            $activityLogService,
+            $leaderboardService
         );
         $this->attachmentService = new AttachmentService($attachmentRepository);
         $this->cvssCalculatorService = new CvssCalculatorService();
@@ -619,6 +626,10 @@ class ReportController
         }
 
         $this->reportRepository->updateFinalSeverity($reportId, $finalSeverity);
+
+        // Recalculate researcher reputation score when final severity is assigned or
+        // modified on a report (Requirement 9.2, 9.5, 9.6).
+        $this->leaderboardService->recalculateScore((int) $report['researcher_id']);
 
         $_SESSION['flash_success'] = 'Final severity set successfully.';
         header('Location: index.php?page=report-detail&id=' . $reportId);

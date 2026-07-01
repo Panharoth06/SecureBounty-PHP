@@ -6,6 +6,7 @@ require_once __DIR__ . '/../repository/ProgramRepository.php';
 require_once __DIR__ . '/../repository/RewardPolicyRepository.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/ActivityLogService.php';
+require_once __DIR__ . '/LeaderboardService.php';
 
 /**
  * ReportService
@@ -31,14 +32,20 @@ class ReportService
     private RewardPolicyRepository $rewardPolicyRepository;
     private NotificationService $notificationService;
     private ActivityLogService $activityLogService;
+    private ?LeaderboardService $leaderboardService;
 
     /**
-     * @param ReportRepository       $reportRepository
-     * @param UserProgramRepository  $userProgramRepository
-     * @param ProgramRepository      $programRepository
-     * @param RewardPolicyRepository $rewardPolicyRepository
-     * @param NotificationService    $notificationService
-     * @param ActivityLogService     $activityLogService
+     * @param ReportRepository        $reportRepository
+     * @param UserProgramRepository   $userProgramRepository
+     * @param ProgramRepository       $programRepository
+     * @param RewardPolicyRepository  $rewardPolicyRepository
+     * @param NotificationService     $notificationService
+     * @param ActivityLogService      $activityLogService
+     * @param LeaderboardService|null $leaderboardService Optional. When provided, reputation
+     *                                                   scores are recalculated on report
+     *                                                   acceptance and on status transitions
+     *                                                   to/from 'accepted'. When null, the
+     *                                                   recalculation step is skipped (no-op).
      */
     public function __construct(
         ReportRepository $reportRepository,
@@ -46,7 +53,8 @@ class ReportService
         ProgramRepository $programRepository,
         RewardPolicyRepository $rewardPolicyRepository,
         NotificationService $notificationService,
-        ActivityLogService $activityLogService
+        ActivityLogService $activityLogService,
+        ?LeaderboardService $leaderboardService = null
     ) {
         $this->reportRepository = $reportRepository;
         $this->userProgramRepository = $userProgramRepository;
@@ -54,6 +62,7 @@ class ReportService
         $this->rewardPolicyRepository = $rewardPolicyRepository;
         $this->notificationService = $notificationService;
         $this->activityLogService = $activityLogService;
+        $this->leaderboardService = $leaderboardService;
     }
 
     /**
@@ -86,6 +95,11 @@ class ReportService
         $program = $this->programRepository->findById($programId);
         if ($program === null || $program['status'] !== 'active') {
             throw new RuntimeException('Program is not active and cannot accept submissions.', 403);
+        }
+
+        // Verify researcher is enrolled in the program
+        if (!$this->userProgramRepository->isEnrolled($researcherId, $programId)) {
+            throw new RuntimeException('Researcher is not enrolled in this program.', 403);
         }
 
         // Validate required fields
@@ -150,6 +164,15 @@ class ReportService
 
         $this->reportRepository->updateStatus($reportId, $status);
 
+        // Recalculate researcher reputation score on transitions to/from 'accepted'
+        // (Requirement 3.6, 3.7, 9.5: rejection floors score at zero; acceptance awards points)
+        if (
+            $this->leaderboardService !== null
+            && ($previousStatus === 'accepted' || $status === 'accepted')
+        ) {
+            $this->leaderboardService->recalculateScore((int) $report['researcher_id']);
+        }
+
         // Log activity
         $this->activityLogService->log(
             $userId,
@@ -200,6 +223,11 @@ class ReportService
 
         // Auto-link reward policy by matching severity for the program
         $this->autoLinkRewardPolicy($reportId, (int) $report['program_id'], $finalSeverity);
+
+        // Recalculate researcher reputation score (Requirement 9.2, 9.5)
+        if ($this->leaderboardService !== null) {
+            $this->leaderboardService->recalculateScore((int) $report['researcher_id']);
+        }
 
         // Log activity
         $this->activityLogService->log(

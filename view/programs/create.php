@@ -35,7 +35,7 @@ $oldInput = $oldInput ?? [];
 
 <!-- Create Form -->
 <div class="card-surface" style="padding:var(--space-lg);">
-    <form method="POST" action="index.php?page=process-program-create">
+    <form method="POST" action="index.php?page=process-program-create" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
         <!-- Title -->
@@ -65,6 +65,16 @@ $oldInput = $oldInput ?? [];
             <p style="font-size:var(--text-caption); color:var(--muted-foreground); margin-top:6px;">
                 List the assets researchers are permitted to test. You can add reward policies after creating the
                 program.
+            </p>
+        </div>
+
+        <!-- Logo (optional) -->
+        <div style="margin-bottom:var(--space-lg);">
+            <label for="logo" class="form-label">Program Logo <span
+                    style="color:var(--muted-foreground); font-weight:400;">(optional)</span></label>
+            <input type="file" id="logo" name="logo" class="form-input" accept="image/png,image/jpeg,image/gif">
+            <p style="font-size:var(--text-caption); color:var(--muted-foreground); margin-top:6px;">
+                PNG, JPG, or GIF. Max 2 MB. Will be resized to 200x200 pixels.
             </p>
         </div>
 

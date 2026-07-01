@@ -139,4 +139,138 @@ class ProgramRepository extends BaseRepository
             [$limit, $offset]
         );
     }
+
+    /**
+     * Find active programs matching the given filter criteria with pagination.
+     *
+     * Filters are applied with AND logic across categories and OR logic within each category:
+     * - asset_type: programs with at least one asset of any selected type
+     * - tag: programs associated with at least one of the selected tag IDs
+     * - bounty_min: programs with at least one reward_policy where max_reward >= bounty_min
+     * - bounty_max: programs with at least one reward_policy where max_reward <= bounty_max
+     *
+     * @param array $filters Associative array of filter criteria.
+     * @param int   $limit   Maximum number of records to return.
+     * @param int   $offset  Number of records to skip.
+     * @return array Array of associative arrays (program rows).
+     *
+     * @see Requirement 5.1 — Filter by Asset_Type (OR within)
+     * @see Requirement 5.2 — Filter by Technology_Tag (OR within)
+     * @see Requirement 5.3 — Filter by Bounty_Range
+     * @see Requirement 5.5 — AND logic across filter categories
+     */
+    public function findActiveWithFilters(array $filters, int $limit, int $offset): array
+    {
+        $where = "p.status = 'active'";
+        $types = '';
+        $params = [];
+
+        $this->buildFilterClauses($filters, $where, $types, $params);
+
+        $types .= 'ii';
+        $params[] = $limit;
+        $params[] = $offset;
+
+        $sql = "SELECT p.* FROM programs p WHERE {$where} ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
+
+        return $this->fetchAll($sql, $types, $params);
+    }
+
+    /**
+     * Count active programs matching the given filter criteria.
+     *
+     * Uses the same filter logic as findActiveWithFilters() but returns only the count.
+     *
+     * @param array $filters Associative array of filter criteria.
+     * @return int Total number of matching programs.
+     *
+     * @see Requirement 5.1 — Filter by Asset_Type (OR within)
+     * @see Requirement 5.2 — Filter by Technology_Tag (OR within)
+     * @see Requirement 5.3 — Filter by Bounty_Range
+     * @see Requirement 5.5 — AND logic across filter categories
+     */
+    public function countActiveWithFilters(array $filters): int
+    {
+        $where = "p.status = 'active'";
+        $types = '';
+        $params = [];
+
+        $this->buildFilterClauses($filters, $where, $types, $params);
+
+        $sql = "SELECT COUNT(*) AS total FROM programs p WHERE {$where}";
+
+        $row = $this->fetchOne($sql, $types, $params);
+
+        return (int) ($row['total'] ?? 0);
+    }
+
+    /**
+     * Update a program's logo_path column.
+     *
+     * Pass null to remove the logo association.
+     *
+     * @param int         $id       Program ID.
+     * @param string|null $logoPath File path to the logo, or null to clear.
+     * @return int Number of affected rows (0 or 1).
+     *
+     * @see Requirement 7.1 — Store logo image associated with Program
+     */
+    public function updateLogoPath(int $id, ?string $logoPath): int
+    {
+        return $this->execute(
+            'UPDATE programs SET logo_path = ?, updated_at = NOW() WHERE id = ?',
+            'si',
+            [$logoPath, $id]
+        );
+    }
+
+    /**
+     * Build dynamic WHERE clauses for filter queries.
+     *
+     * Appends EXISTS subqueries to the $where string and populates $types/$params
+     * for parameterized binding.
+     *
+     * @param array  $filters Associative array of filter criteria.
+     * @param string &$where  WHERE clause string (modified by reference).
+     * @param string &$types  Type string for bind_param (modified by reference).
+     * @param array  &$params Parameter values (modified by reference).
+     */
+    private function buildFilterClauses(array $filters, string &$where, string &$types, array &$params): void
+    {
+        // Filter by asset type (OR within — program has at least one asset of any selected type)
+        if (!empty($filters['asset_type']) && is_array($filters['asset_type'])) {
+            $assetTypes = $filters['asset_type'];
+            $placeholders = implode(', ', array_fill(0, count($assetTypes), '?'));
+            $where .= " AND EXISTS (SELECT 1 FROM program_assets pa WHERE pa.program_id = p.id AND pa.type IN ({$placeholders}))";
+            $types .= str_repeat('s', count($assetTypes));
+            foreach ($assetTypes as $assetType) {
+                $params[] = $assetType;
+            }
+        }
+
+        // Filter by tag IDs (OR within — program associated with at least one selected tag)
+        if (!empty($filters['tag']) && is_array($filters['tag'])) {
+            $tagIds = array_map('intval', $filters['tag']);
+            $placeholders = implode(', ', array_fill(0, count($tagIds), '?'));
+            $where .= " AND EXISTS (SELECT 1 FROM program_tags pt WHERE pt.program_id = p.id AND pt.tag_id IN ({$placeholders}))";
+            $types .= str_repeat('i', count($tagIds));
+            foreach ($tagIds as $tagId) {
+                $params[] = $tagId;
+            }
+        }
+
+        // Filter by minimum bounty (program has at least one reward_policy with max_reward >= bounty_min)
+        if (isset($filters['bounty_min']) && is_numeric($filters['bounty_min'])) {
+            $where .= " AND EXISTS (SELECT 1 FROM reward_policies rp WHERE rp.program_id = p.id AND rp.max_reward >= ?)";
+            $types .= 'd';
+            $params[] = (float) $filters['bounty_min'];
+        }
+
+        // Filter by maximum bounty (program has at least one reward_policy with max_reward <= bounty_max)
+        if (isset($filters['bounty_max']) && is_numeric($filters['bounty_max'])) {
+            $where .= " AND EXISTS (SELECT 1 FROM reward_policies rp WHERE rp.program_id = p.id AND rp.max_reward <= ?)";
+            $types .= 'd';
+            $params[] = (float) $filters['bounty_max'];
+        }
+    }
 }
